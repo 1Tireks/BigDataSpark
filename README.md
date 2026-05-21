@@ -85,3 +85,81 @@
 7. Код Apache Spark трансформации данных из снежинки/звезды в отчеты в Neo4j.
 8. Код Apache Spark трансформации данных из снежинки/звезды в отчеты в MongoDB.
 9. Код Apache Spark трансформации данных из снежинки/звезды в отчеты в Valkey.
+
+---
+
+## Выполнение (форк [1Tireks/BigDataSpark](https://github.com/1Tireks/BigDataSpark))
+
+### Структура проекта
+
+| Путь | Назначение |
+|------|------------|
+| `исходные данные/` | 10 CSV (`MOCK_DATA.csv` … `MOCK_DATA (9).csv`) |
+| `docker-compose.yml` | PostgreSQL, Spark, ClickHouse в одной сети |
+| `init/` | DDL `mock_data`, загрузка CSV, пустая схема «звезда» |
+| `spark/jobs/` | PySpark ETL: звезда в PG и витрины в ClickHouse |
+| `scripts/` | Скрипты запуска `spark-submit` |
+
+### Запуск
+
+```bash
+cd BigData2
+docker compose up -d
+# дождаться healthcheck postgres и clickhouse
+chmod +x scripts/*.sh
+./scripts/run_all_etl.sh
+```
+
+Отдельные джобы:
+
+```bash
+./scripts/truncate_star.sh
+./scripts/run_spark_job.sh etl_star_schema
+./scripts/run_spark_job.sh etl_clickhouse_reports
+```
+
+### Подключения (DBeaver / CLI)
+
+| Сервис | Host | Port | Логин / пароль | БД |
+|--------|------|------|----------------|-----|
+| PostgreSQL | `localhost` | `5433` | `postgres` / `postgres` | `bigdata_lab` |
+| ClickHouse HTTP | `localhost` | `8123` | `default` / *(пусто)* | `marts` |
+
+Проверка PostgreSQL:
+
+```sql
+SELECT COUNT(*) FROM mock_data;    -- 10000
+SELECT COUNT(*) FROM fact_sales;  -- 10000
+```
+
+Проверка ClickHouse:
+
+```sql
+SELECT report_part, count() FROM marts.mart_product_sales GROUP BY report_part;
+SELECT report_part, count() FROM marts.mart_customer_sales GROUP BY report_part;
+SELECT report_part, count() FROM marts.mart_time_sales GROUP BY report_part;
+SELECT report_part, count() FROM marts.mart_store_sales GROUP BY report_part;
+SELECT report_part, count() FROM marts.mart_supplier_sales GROUP BY report_part;
+SELECT report_part, count() FROM marts.mart_product_quality GROUP BY report_part;
+```
+
+### Spark-джобы
+
+1. **`etl_star_schema.py`** — читает `mock_data`, строит измерения и `fact_sales` (модель «звезда» из лаб. №1), пишет в PostgreSQL.
+2. **`etl_clickhouse_reports.py`** — читает звезду из PostgreSQL, формирует 6 витрин и пишет в ClickHouse:
+   - `mart_product_sales`
+   - `mart_customer_sales`
+   - `mart_time_sales`
+   - `mart_store_sales`
+   - `mart_supplier_sales`
+   - `mart_product_quality`
+
+В каждой таблице поле `report_part` разделяет метрики внутри витрины (топ-N, агрегаты по странам, тренды и т.д.).
+
+### Сброс данных
+
+```bash
+docker compose down -v   # удалить тома PostgreSQL и ClickHouse
+docker compose up -d
+./scripts/run_all_etl.sh
+```
